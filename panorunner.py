@@ -1,3 +1,4 @@
+import sys
 import os
 import argparse
 import fnmatch
@@ -9,6 +10,9 @@ import logging
 class Runner(object):
     ori_files = []
     def __init__(self, **args):
+        paths = os.environ['PATH'].split(':')
+        paths.append(args['hugin'])
+        self.path = ':'.join(paths)
         for k in ('directory', 'orient', 'verbose'):
             setattr(self, k, args.get(k))
 
@@ -16,7 +20,6 @@ class Runner(object):
         logging.basicConfig(format=FORMAT, filename='runner.log', 
                             level=getattr(logging, self.verbose.upper()))
         self.logger = logging.getLogger(__name__)
-        print self.verbose
         if self.directory == '.':
             self.directory = os.getcwd()
 
@@ -44,17 +47,23 @@ class Runner(object):
                 break
 
     def register_tools(self):
-        executable_list = ['convert']
+        executable_list = ['convert', 'pto_gen']
+
         for e in executable_list:
-            self.tools.update({e: find_executable(e)})
+            self.tools.update({e: find_executable(e, path=self.path)})
+
+    def gen_project(self):
+        print self.tools
+        pass
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--directory', default='.', help='image directory')
 parser.add_argument('--orient', default='RightBottom', help='image orientation')
 parser.add_argument('--verbose', default='INFO', help='INFO, DEBUG')
+parser.add_argument('--hugin', default='/Applications/HuginTools')
 args = parser.parse_args()
 
 runner = Runner(**(args.__dict__))
-runner.reset_orient()
-
+#runner.reset_orient()
+runner.gen_project()
     
