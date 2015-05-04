@@ -13,6 +13,8 @@ class Runner(object):
         paths = os.environ['PATH'].split(':')
         paths.append(args['hugin'])
         self.path = ':'.join(paths)
+        self.project_name = 'project.pto'
+        self.template_name = 'template.pto'
         for k in ('directory', 'orient', 'verbose'):
             setattr(self, k, args.get(k))
 
@@ -47,23 +49,34 @@ class Runner(object):
                 break
 
     def register_tools(self):
-        executable_list = ['convert', 'pto_gen']
+        executable_list = ['convert', 'pto_gen', 'nona', 'enblend']
 
         for e in executable_list:
             self.tools.update({e: find_executable(e, path=self.path)})
 
+    def run_command(self, command_args):
+        print 'running...'
+        print ' '.join(command_args)
+        call(command_args)
+
     def gen_project(self):
-        print self.tools
-        pass
+        _cmd = 'pto_gen -o {}.pto'.format(self.project_name)
+        self.run_command(_cmd.split() + self.ori_files)
+
+    def stitch(self):
+        _cmd = "{} -o finished -m TIFF {}".format(self.tools['nona'], self.template_name)
+        self.run_command(_cmd.split() + self.ori_files)
+        #_cmd = "{} -o finished.tif out0000.tif out0001.tif out0002.tif out0003.tif".format(self.tools['nona'])
+        #self.run_command(_cmd.split())
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--directory', default='.', help='image directory')
-parser.add_argument('--orient', default='RightBottom', help='image orientation')
+parser.add_argument('--orient', default='LeftBottom', help='image orientation')
 parser.add_argument('--verbose', default='INFO', help='INFO, DEBUG')
 parser.add_argument('--hugin', default='/Applications/HuginTools')
 args = parser.parse_args()
 
 runner = Runner(**(args.__dict__))
-#runner.reset_orient()
-runner.gen_project()
-    
+runner.reset_orient()
+#runner.gen_project()
+runner.stitch()
