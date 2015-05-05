@@ -1,5 +1,6 @@
 import sys
 import os
+from os import path, listdir, remove
 import argparse
 import fnmatch
 import re
@@ -13,24 +14,34 @@ class Runner(object):
         paths = os.environ['PATH'].split(':')
         paths.append(args['hugin'])
         self.path = ':'.join(paths)
-        self.project_name = 'project.pto'
-        self.template_name = 'template.pto'
-        for k in ('directory', 'orient', 'verbose'):
-            setattr(self, k, args.get(k))
+        for k in ('directory', 'orient', 'verbose', 'output', 'template', 'project',
+                  'cp_density'):
+            setattr(self, k, args.get(k, ''))
 
         FORMAT = '%(asctime)-15s %(message)s'
         logging.basicConfig(format=FORMAT, filename='runner.log', 
                             level=getattr(logging, self.verbose.upper()))
         self.logger = logging.getLogger(__name__)
-        if self.directory == '.':
-            self.directory = os.getcwd()
+        for f in ('directory', 'template'):
+            v = getattr(self, f)
+            setattr(self, f, path.abspath(v))
+
+        self.project = self.output
+        for n, f in [('project', 'pto'), ('output', 'tif')]:
+            setattr(self, n,
+                    path.join(self.directory, '{}.{}'.format(getattr(self, n), f)))
 
         self.includes = ['*.JPG', '*.jpg']
         self.includes = r'|'.join([fnmatch.translate(x) for x in self.includes])
-        files = [f for f in os.listdir(self.directory) if os.path.isfile(f)]
-        self.ori_files = [os.path.join(self.directory, f) for f in files if re.match(self.includes, f)]
+        files = [f for f in listdir(self.directory) if path.isfile(path.join(self.directory, f))]
+        self.ori_files = [path.join(self.directory, f) for f in files if re.match(self.includes, f)]
         self.tools = {}
         self.register_tools()
+
+    def run_command(self, command, additional, **kwargs):
+        _cmd = command.format(**kwargs)
+        print _cmd + ' '.format(additional)
+        call(_cmd.split() + additional)
 
     def reset_orient(self):
         self.logger.info('resetting orientation...')
@@ -38,45 +49,69 @@ class Runner(object):
                   'orient': self.orient}
         for f in self.ori_files:
             kwargs.update({'file': f})
-            cmd = '{executable} {file} -orient {orient} {file}'
+            _cmd = '{executable} {file} -orient {orient} {file}'
             # convert -list orientation to get a complete list of orientations
-            try:
-                _cmd = cmd.format(**kwargs)
-                self.logger.debug(_cmd)
-                call(_cmd.split())
-            except Exception as e:
-                print repr(e)
-                break
+            self.run_command(_cmd, [], **kwargs)
 
     def register_tools(self):
-        executable_list = ['convert', 'pto_gen', 'nona', 'enblend']
+        executable_list = ['convert', 'pto_gen', 'nona', 'enblend', 'cpfind',
+                           'pto_template']
 
         for e in executable_list:
             self.tools.update({e: find_executable(e, path=self.path)})
 
-    def run_command(self, command_args):
-        print 'running...'
-        print ' '.join(command_args)
-        call(command_args)
-
     def gen_project(self):
-        _cmd = 'pto_gen -o {}.pto'.format(self.project_name)
-        self.run_command(_cmd.split() + self.ori_files)
+        kwargs = {'executable': self.tools['pto_gen'], 
+                  'project': self.project,
+                  'template': self.template}
+
+        _cmd = '{executable} -o {project}'
+        self.run_command(_cmd, self.ori_files, **kwargs)
+
+        kwargs['executable'] = self.tools['pto_template']
+        _cmd = '{executable} --output={project} --template={template} {project}' 
+        self.run_command(_cmd, [], **kwargs)
+
+    def find_control_points(self):
+        _cmd = '{executable} --linearmatch --sieve1width {cp_density} --sieve1height {cp_density} --sieve1size {cp_density} -o {project} {project}'
+        kwargs = {'executable': self.tools['cpfind'],
+                  'project': self.project,
+                  'cp_density': self.cp_density}
+        self.run_command(_cmd, [], **kwargs)
 
     def stitch(self):
-        _cmd = "{} -o finished -m TIFF {}".format(self.tools['nona'], self.template_name)
-        self.run_command(_cmd.split() + self.ori_files)
-        #_cmd = "{} -o finished.tif out0000.tif out0001.tif out0002.tif out0003.tif".format(self.tools['nona'])
-        #self.run_command(_cmd.split())
+        kwargs = {'executable': self.tools['nona'],
+                  'project': self.project,
+                  'output': self.output}
+        _cmd = "{executable} -o out -m TIFF_m {project}"
+        self.run_command(_cmd, self.ori_files, **kwargs)
+
+        kwargs['executable'] = 'enblend'
+        _cmd = "{executable} -o {output}"
+
+        inter_files = ['out{:04d}.tif'.format(i) for i in range(len(self.ori_files))]
+        self.run_command(_cmd, inter_files, **kwargs)
+
+        # clean outxxxx.tif
+        for f in inter_files:
+            try:
+                remove(f)
+            except OSError as e:
+                print repr(e)
 
 parser = argparse.ArgumentParser()
+parser.add_argument('output', default='finished', help='output file name')
 parser.add_argument('--directory', default='.', help='image directory')
 parser.add_argument('--orient', default='LeftBottom', help='image orientation')
 parser.add_argument('--verbose', default='INFO', help='INFO, DEBUG')
 parser.add_argument('--hugin', default='/Applications/HuginTools')
+parser.add_argument('--template', default=path.join(path.dirname(__file__), 'template.pto'))
+parser.add_argument('--cp_density', default=120)
 args = parser.parse_args()
 
-runner = Runner(**(args.__dict__))
-runner.reset_orient()
-#runner.gen_project()
-runner.stitch()
+if __name__ == '__main__':
+    runner = Runner(**(args.__dict__))
+    runner.reset_orient()
+    runner.gen_project()
+    runner.find_control_points()
+    runner.stitch()
