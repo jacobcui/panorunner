@@ -43,11 +43,12 @@ class Runner(object):
             if not kwargs.get(c):
                 kwargs[c] = getattr(self, c)
         _cmd = command.format(**kwargs)
-        print _cmd + ' '.format(additional)
+        msg = _cmd + ' '.format(additional)
+        print msg
+        self.logger.info(msg)
         call(_cmd.split() + additional)
 
     def reset_orient(self):
-        self.logger.info('resetting orientation...')
         kwargs = {'executable': self.tools['convert'],
                   'orient': self.orient}
         for f in self.ori_files:
