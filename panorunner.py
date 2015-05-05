@@ -39,6 +39,9 @@ class Runner(object):
         self.register_tools()
 
     def run_command(self, command, additional, **kwargs):
+        for c in ('project', 'output'):
+            if not kwargs.get(c):
+                kwargs[c] = getattr(self, c)
         _cmd = command.format(**kwargs)
         print _cmd + ' '.format(additional)
         call(_cmd.split() + additional)
@@ -55,7 +58,8 @@ class Runner(object):
 
     def register_tools(self):
         executable_list = ['convert', 'pto_gen', 'nona', 'enblend', 'cpfind',
-                           'pto_template']
+                           'pto_template', 'cpclean', 'linefind', 'autooptimiser',
+                           'pano_modify']
 
         for e in executable_list:
             self.tools.update({e: find_executable(e, path=self.path)})
@@ -73,10 +77,31 @@ class Runner(object):
         self.run_command(_cmd, [], **kwargs)
 
     def find_control_points(self):
-        _cmd = '{executable} --linearmatch --sieve1width {cp_density} --sieve1height {cp_density} --sieve1size {cp_density} -o {project} {project}'
         kwargs = {'executable': self.tools['cpfind'],
                   'project': self.project,
                   'cp_density': self.cp_density}
+        # find control points
+        _cmd = '{executable} --celeste --linearmatch --sieve1width {cp_density} --sieve1height {cp_density} --sieve1size {cp_density} -o {project} {project}'
+        self.run_command(_cmd, [], **kwargs)
+
+        # control point clean
+        kwargs['executable'] = self.tools['cpclean']
+        _cmd = '{executable} -o {project} {project}'
+        self.run_command(_cmd, [], **kwargs)
+
+    def find_vertical_lines(self):
+        kwargs = {'executable': self.tools['linefind']}
+        _cmd = '{executable} -o {project} {project}'
+        self.run_command(_cmd, [], **kwargs)
+
+    def optimize(self):
+        # Optimize position, do photometric optimization, straighten panorama and select suitable output projection
+        kwargs = {'executable': self.tools['autooptimiser']}
+        _cmd = '{executable} -a -m -l -s -o {project} {project}'
+        self.run_command(_cmd, [], **kwargs)
+
+        kwargs['executable'] = 'pano_modify'
+        _cmd = '{executable} --canvas=AUTO --crop=AUTO -o {project} {project}'
         self.run_command(_cmd, [], **kwargs)
 
     def stitch(self):
@@ -114,4 +139,6 @@ if __name__ == '__main__':
     runner.reset_orient()
     runner.gen_project()
     runner.find_control_points()
+    runner.find_vertical_lines()
+    runner.optimize()
     runner.stitch()
