@@ -1,0 +1,5 @@
+in pfstools directory, 
+mkdir build
+cmake -DWITH_TIFF=true -DWITH_pfsglview=true ../
+make
+make install
