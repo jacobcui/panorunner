@@ -1,5 +1,6 @@
 import sys
 import os
+from copy import copy
 from os import path, listdir, remove
 import argparse
 import fnmatch
@@ -7,6 +8,12 @@ import re
 from subprocess import call
 from distutils.spawn import find_executable
 import logging
+
+def chunks(l, n):
+    """ Yield successive n-sized chunks from l.
+    """
+    for i in xrange(0, len(l), n):
+        yield l[i:i+n]
 
 class Runner(object):
     ori_files = []
@@ -35,6 +42,7 @@ class Runner(object):
         self.includes = r'|'.join([fnmatch.translate(x) for x in self.includes])
         files = [f for f in listdir(self.directory) if path.isfile(path.join(self.directory, f))]
         self.ori_files = [path.join(self.directory, f) for f in files if re.match(self.includes, f)]
+        self.project_files = copy(self.ori_files)
         self.tools = {}
         self.register_tools()
 
@@ -51,7 +59,7 @@ class Runner(object):
     def reset_orient(self):
         kwargs = {'executable': self.tools['convert'],
                   'orient': self.orient}
-        for f in self.ori_files:
+        for f in self.project_files:
             kwargs.update({'file': f})
             _cmd = '{executable} {file} -orient {orient} {file}'
             # convert -list orientation to get a complete list of orientations
@@ -71,7 +79,7 @@ class Runner(object):
                   'template': self.template}
 
         _cmd = '{executable} -o {project}'
-        self.run_command(_cmd, self.ori_files, **kwargs)
+        self.run_command(_cmd, self.project_files, **kwargs)
 
         kwargs['executable'] = self.tools['pto_template']
         _cmd = '{executable} --output={project} --template={template} {project}' 
@@ -110,12 +118,12 @@ class Runner(object):
                   'project': self.project,
                   'output': self.output}
         _cmd = "{executable} -o out -m TIFF_m {project}"
-        self.run_command(_cmd, self.ori_files, **kwargs)
+        self.run_command(_cmd, self.project_files, **kwargs)
 
         kwargs['executable'] = 'enblend'
         _cmd = "{executable} -o {output}"
 
-        inter_files = ['out{:04d}.tif'.format(i) for i in range(len(self.ori_files))]
+        inter_files = ['out{:04d}.tif'.format(i) for i in range(len(self.project_files))]
         self.run_command(_cmd, inter_files, **kwargs)
 
         # clean outxxxx.tif
@@ -124,6 +132,21 @@ class Runner(object):
                 remove(f)
             except OSError as e:
                 print repr(e)
+
+    def hdr_output(self):
+        if len(self.ori_files) != 12:
+            print 'Please use 4 sets of 3 photos taken in explores brackets'
+            sys.exit()
+
+        for i, files in enumerate( chunks(self.ori_files, 3)):
+            out_file = path.join(self.directory, '{:04d}'.format(i+1))
+            self.project_files.append(out_file)
+            kwargs = {'files': ' '.join([path.join(self.directory, f) for f in files]),
+                      'out_file': out_file}
+            _cmd = "pfsinme {files}|pfshdrcalibrate > {out_file}.HDR"
+            self.run_command(_cmd, [], **kwargs)
+            _cmd = "cat {out_file}.HDR|pfstmo_drago03|pfsgamma -g 1.8|pfsrotate --r|pfsout {out_file}.TIFF"
+            self.run_command(_cmd, [], **kwargs)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('output', default='finished', help='output file name')
@@ -137,6 +160,7 @@ args = parser.parse_args()
 
 if __name__ == '__main__':
     runner = Runner(**(args.__dict__))
+    runner.hdr_output()
     runner.reset_orient()
     runner.gen_project()
     runner.find_control_points()
