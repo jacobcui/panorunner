@@ -5,7 +5,7 @@ from os import path, listdir, remove
 import argparse
 import fnmatch
 import re
-from subprocess import call
+from subprocess import call, Popen, PIPE
 from distutils.spawn import find_executable
 import logging
 
@@ -141,12 +141,19 @@ class Runner(object):
         for i, files in enumerate( chunks(self.ori_files, 3)):
             out_file = path.join(self.directory, '{:04d}'.format(i+1))
             self.project_files.append(out_file)
-            kwargs = {'files': ' '.join([path.join(self.directory, f) for f in files]),
+            kwargs = {'files': [path.join(self.directory, f) for f in files],
                       'out_file': out_file}
-            _cmd = "pfsinme {files}|pfshdrcalibrate > {out_file}.HDR"
-            self.run_command(_cmd, [], **kwargs)
-            _cmd = "cat {out_file}.HDR|pfstmo_drago03|pfsgamma -g 1.8|pfsrotate --r|pfsout {out_file}.TIFF"
-            self.run_command(_cmd, [], **kwargs)
+
+            pfsinme = Popen(['pfsinme'] + kwargs['files'], stdout=PIPE)
+            pfsinme.wait()
+            pfshdrcalibrate = Popen(['pfshdrcalibrate'], stdin=pfsinme.communicate()[0], stdout=PIPE)
+            pfshdrcalibrate.wait()
+            pfstmo_drago03 = Popen(['pfstmo_drago03'], stdin=pfshdrcalibrate.communicate()[0], stdout=PIPE)
+            pfstmo_drago03.wait()
+            pfsgamma = Popen(['pfsgamma', '-g', '1.8'], stdin=pfstmo_drago03.communicate()[0], stdout=PIPE)
+            pfsgamma.wait()
+            pfsout = Popen(['pfsout', '{}.TIF'.format(kwargs['out_file'])], stdin=pfsgamma.communicate()[0])
+            pfsout.wait()
 
 parser = argparse.ArgumentParser()
 parser.add_argument('output', default='finished', help='output file name')
@@ -161,9 +168,9 @@ args = parser.parse_args()
 if __name__ == '__main__':
     runner = Runner(**(args.__dict__))
     runner.hdr_output()
-    runner.reset_orient()
-    runner.gen_project()
-    runner.find_control_points()
-    runner.find_vertical_lines()
-    runner.optimize()
-    runner.stitch()
+#    runner.reset_orient()
+#    runner.gen_project()
+#    runner.find_control_points()
+#    runner.find_vertical_lines()
+#    runner.optimize()
+#    runner.stitch()

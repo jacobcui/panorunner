@@ -3,3 +3,6 @@ mkdir build
 cmake -DWITH_TIFF=true -DWITH_pfsglview=true -DWITH_QT=true ../
 make
 make install
+
+
+pfsinhdrgen sample.hdrgen | pfshdrcalibrate | pfsview
